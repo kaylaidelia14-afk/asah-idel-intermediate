@@ -1,22 +1,58 @@
 // Service Worker untuk PWA
 const CACHE_NAME = 'story-app-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  './styles/styles.css',
-  './scripts/index.js',
-  './public/favicon.png',
-  './public/images/logo.png',
-];
 
-// Install event - cache static assets
+// Get base path dari service worker location
+const getBasePath = () => {
+  // Service worker file location (misal: /Tugas-intermediate-idelia-fk/sw.js)
+  const swPath = self.location.pathname;
+  // Extract base path dari path service worker
+  // Jika path = /Tugas-intermediate-idelia-fk/sw.js, base = /Tugas-intermediate-idelia-fk
+  const pathParts = swPath.split('/').filter(p => p && p !== 'sw.js');
+  if (pathParts.length > 0) {
+    return '/' + pathParts.join('/');
+  }
+  return '';
+};
+
+// App Shell - file utama yang perlu di-cache untuk offline
+// Path akan di-resolve saat install event
+let APP_SHELL = [];
+
+// Install event - cache App Shell
 self.addEventListener('install', (event) => {
-  console.log('[SW] Install event');
+  console.log('[SW] Install event - Caching App Shell');
+  
+  // Determine base path
+  const basePath = getBasePath();
+  console.log('[SW] Base path:', basePath);
+  
+  // Define App Shell files dengan base path
+  const appShellFiles = [
+    `${basePath}/index.html`,
+    `${basePath}/app.css`,
+    `${basePath}/app.bundle.js`,
+    `${basePath}/favicon.png`,
+    `${basePath}/images/logo.png`,
+    `${basePath}/manifest.json`,
+  ];
+  
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('[SW] Caching static assets');
-        return cache.addAll(urlsToCache.map(url => new URL(url, self.location).href));
+        console.log('[SW] Caching App Shell files:', appShellFiles);
+        // Cache App Shell files
+        return Promise.all(
+          appShellFiles.map(url => {
+            return cache.add(url).catch(err => {
+              console.warn(`[SW] Failed to cache ${url}:`, err);
+              // Continue even if one file fails
+              return null;
+            });
+          })
+        );
+      })
+      .then(() => {
+        console.log('[SW] App Shell cached successfully');
       })
       .catch((err) => {
         console.error('[SW] Cache install error:', err);
@@ -86,7 +122,46 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
-  // Static assets - Cache First
+  // HTML requests - Cache First dengan fallback ke index.html
+  const acceptHeader = request.headers.get('accept') || '';
+  if (acceptHeader.includes('text/html')) {
+    event.respondWith(
+      caches.match(request)
+        .then((response) => {
+          if (response) {
+            return response;
+          }
+          return fetch(request)
+            .then((response) => {
+              // Cache successful HTML responses
+              if (response && response.status === 200) {
+                const responseClone = response.clone();
+                caches.open(CACHE_NAME).then((cache) => {
+                  cache.put(request, responseClone);
+                });
+              }
+              return response;
+            })
+            .catch(() => {
+              // Offline - return cached index.html (App Shell)
+              const basePath = getBasePath();
+              return caches.match(`${basePath}/index.html`)
+                .then((response) => {
+                  return response || caches.match(`${basePath}/`)
+                    .then((fallback) => {
+                      return fallback || new Response('Offline - Aplikasi tidak dapat diakses', { 
+                        status: 503,
+                        headers: { 'Content-Type': 'text/html; charset=utf-8' }
+                      });
+                    });
+                });
+            });
+        })
+    );
+    return;
+  }
+  
+  // Static assets (CSS, JS, images) - Cache First
   event.respondWith(
     caches.match(request)
       .then((response) => {
@@ -105,29 +180,9 @@ self.addEventListener('fetch', (event) => {
             // Ignore cache errors
           });
           return response;
-        }).catch((err) => {
-          // Network error - check if we can return cached HTML
-          const acceptHeader = request.headers.get('accept') || '';
-          if (acceptHeader.includes('text/html')) {
-            return caches.match('/index.html').then((response) => {
-              return response || new Response('Offline', { 
-                status: 503,
-                headers: { 'Content-Type': 'text/html' }
-              });
-            });
-          }
-          // Return valid Response untuk error case
-          return new Response('Network error', { 
-            status: 503,
-            headers: { 'Content-Type': 'text/plain' }
-          });
-        });
-      })
-      .catch(() => {
-        // Final fallback
-        return new Response('Service unavailable', { 
-          status: 503,
-          headers: { 'Content-Type': 'text/plain' }
+        }).catch(() => {
+          // Network error - return cached version if available
+          return caches.match(request);
         });
       })
   );
