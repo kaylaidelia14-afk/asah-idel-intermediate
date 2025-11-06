@@ -15,7 +15,7 @@ const LoginPage = async () => {
         <div class="form-group" style="margin-top:8px">
           <label for="password">Password</label>
           <input id="password" type="password" name="password" autocomplete="current-password" required placeholder="Masukkan password" />
-          <label style="display:inline-flex;gap:6px;align-items:center;margin-top:6px">
+          <label for="togglePw" style="display:inline-flex;gap:6px;align-items:center;margin-top:6px">
             <input id="togglePw" type="checkbox" />
             <span>Tampilkan password</span>
           </label>
